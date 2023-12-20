@@ -7,12 +7,15 @@
 #include "vm_dbg.h"
 
 /*
- * Because our opcode is 4 bits, we can encode 2^4=16 instructions max.
+ * Because our opcode is 4 bits, we can encode 2^4=16 instructions max. We only
+ * have 14 instructions in practice because it doesn't make sense to implement
+ * RTI and 0xD is a reserved opcode.
  */
 #define NOPS (16)
 
 /*
- * The opcode is always the first 4 bits of the 16-bit instruction.
+ * Define some macros to get different parts of the instruction using bitwise
+ * arithmetic.
  */
 #define OPC(i)      ((i) >> 12)
 #define DR(i)       (((i) >> 9) & 0x7)
@@ -92,17 +95,29 @@ static inline uint16_t sext(uint16_t n, int b) {
     return ((n >> (b - 1)) & 1) ? (n | (0xFFFF << b)) : n;
 }
 
+/*
+ * Update the RCND register so that we can do branching based on the result of
+ * an operation.
+ */
 static inline void uf(enum regist r) {
     if (reg[r] == 0) reg[RCND] = FZ;
     else if (reg[r] >> 15) reg[RCND] = FN;
     else reg[RCND] = FP;
 }
 
+/*
+ * This function handles two ADD instructions that have the same opcode but
+ * different encodings. If FIMM(i) is 0, add SR1 and SR2. If FIMM(i) is 1, add
+ * SR1 and a "constant" value. Store the result in DR(i).
+ */
 static inline void add(uint16_t i) {
     reg[DR(i)] = reg[SR1(i)] + (FIMM(i) ? SEXTIMM(i) : reg[SR2(i)]);
     uf(DR(i));
 }
 
+/*
+ * This instruction is very similar to ADD, just changing + to &.
+ */
 static inline void and(uint16_t i) {
     reg[DR(i)] = reg[SR1(i)] & (FIMM(i) ? SEXTIMM(i) : reg[SR2(i)]);
     uf(DR(i));
@@ -133,6 +148,9 @@ static inline void jmp(uint16_t i) {
     reg[RPC] = reg[BR(i)];
 }
 
+/*
+ * Load data from a main memory location to DR1.
+ */
 static inline void ld(uint16_t i) {
     reg[DR(i)] = mr(reg[RPC] + POFF9(i));
     uf(DR(i));
